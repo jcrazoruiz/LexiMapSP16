@@ -1,0 +1,98 @@
+# ============================================================
+# LexiMapSP16
+# Archivos excluidos del control de versiones
+# ============================================================
+
+
+# ------------------------------------------------------------
+# Python
+# ------------------------------------------------------------
+
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+
+# ------------------------------------------------------------
+# Entornos virtuales
+# ------------------------------------------------------------
+
+.venv/
+venv/
+env/
+ENV/
+
+
+# ------------------------------------------------------------
+# IDE / sistema operativo
+# ------------------------------------------------------------
+
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+
+# ------------------------------------------------------------
+# Archivos temporales
+# ------------------------------------------------------------
+
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+*.log
+
+
+# ------------------------------------------------------------
+# Datos experimentales pesados
+#
+# Los dumps y artículos held-out son reproducibles a partir
+# del snapshot y segmento documentados en los scripts y
+# manifiestos. No deben almacenarse en Git.
+# ------------------------------------------------------------
+
+data/heldout/**/dump/
+data/heldout/**/articles/
+
+
+# ------------------------------------------------------------
+# Dumps de Wikimedia
+# ------------------------------------------------------------
+
+*.bz2
+*.gz
+*.7z
+*.zip
+
+
+# ------------------------------------------------------------
+# Binarios generados por LexiMapSp-16
+# ------------------------------------------------------------
+
+*.lm16
+
+
+# ------------------------------------------------------------
+# Resultados temporales de benchmarks
+#
+# NO se excluye reports/: los CSV y TXT de validación y
+# experimentación forman parte de la evidencia reproducible.
+# ------------------------------------------------------------
+
+benchmarks/tmp/
+reports/tmp/
+
+
+# ------------------------------------------------------------
+# Diccionarios
+#
+# NO se excluye docs/input/: los diccionarios LexiCorpus
+# utilizados por LexiMapSp-16 forman parte de los insumos
+# experimentales y deben quedar versionados.
+# ------------------------------------------------------------
