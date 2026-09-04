@@ -1,5 +1,6 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
+import argparse
 import sys
 
 from dataclasses import asdict
@@ -41,31 +42,74 @@ SEGMENT_FILENAME = (
     "multistream2.xml-p159401p693323.bz2"
 )
 
-TARGET_ARTICLES = 1_000
+SEGMENT_LABEL = "segment2"
 
-
-HELDOUT_DIRECTORY = (
+DUMP_PATH = (
     PROJECT_ROOT
     / "data"
     / "heldout"
     / "wikipedia_es_20260801_segment2"
-)
-
-DUMP_PATH = (
-    HELDOUT_DIRECTORY
     / "dump"
     / SEGMENT_FILENAME
 )
 
-ARTICLE_DIRECTORY = (
-    HELDOUT_DIRECTORY
-    / "articles"
-)
 
-MANIFEST_PATH = (
-    HELDOUT_DIRECTORY
-    / "manifest.jsonl"
-)
+def parse_arguments() -> argparse.Namespace:
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "Extrae una muestra held-out determinista "
+            "de Wikipedia para LexiMapSp-16."
+        )
+    )
+
+    parser.add_argument(
+        "--skip",
+        type=int,
+        required=True,
+        help=(
+            "Cantidad de artículos válidos que se omitirán "
+            "antes de iniciar la muestra."
+        ),
+    )
+
+    parser.add_argument(
+        "--count",
+        type=int,
+        required=True,
+        help=(
+            "Cantidad de artículos válidos que se extraerán "
+            "después del salto."
+        ),
+    )
+
+    arguments = parser.parse_args()
+
+    if arguments.skip < 0:
+        parser.error(
+            "--skip no puede ser negativo."
+        )
+
+    if arguments.count <= 0:
+        parser.error(
+            "--count debe ser mayor que cero."
+        )
+
+    return arguments
+
+
+def build_dataset_name(
+    skip_articles: int,
+    target_articles: int,
+) -> str:
+
+    return (
+        "wikipedia_es_"
+        f"{SNAPSHOT_DATE}_"
+        f"{SEGMENT_LABEL}_"
+        f"skip{skip_articles}_"
+        f"count{target_articles}"
+    )
 
 
 def format_elapsed(
@@ -95,7 +139,46 @@ def format_elapsed(
 
 def main() -> int:
 
+    arguments = parse_arguments()
+
+    skip_articles = arguments.skip
+    target_articles = arguments.count
+
+    dataset_name = (
+        build_dataset_name(
+            skip_articles=skip_articles,
+            target_articles=target_articles,
+        )
+    )
+
+    heldout_directory = (
+        PROJECT_ROOT
+        / "data"
+        / "heldout"
+        / dataset_name
+    )
+
+    article_directory = (
+        heldout_directory
+        / "articles"
+    )
+
+    manifest_path = (
+        heldout_directory
+        / "manifest.jsonl"
+    )
+
+    first_valid_article = (
+        skip_articles + 1
+    )
+
+    last_valid_article = (
+        skip_articles
+        + target_articles
+    )
+
     print()
+
     print(
         "LexiMapSp-16 - Extracción Wikipedia Held-Out"
     )
@@ -122,18 +205,35 @@ def main() -> int:
     )
 
     print(
-        "Objetivo               : "
-        f"{TARGET_ARTICLES:,} artículos"
+        "Artículos a omitir     : "
+        f"{skip_articles:,}"
+    )
+
+    print(
+        "Artículos a procesar   : "
+        f"{target_articles:,}"
+    )
+
+    print(
+        "Posiciones válidas     : "
+        f"{first_valid_article:,}"
+        " -> "
+        f"{last_valid_article:,}"
+    )
+
+    print(
+        "Dataset                : "
+        f"{dataset_name}"
     )
 
     print(
         "Directorio artículos   : "
-        f"{ARTICLE_DIRECTORY}"
+        f"{article_directory}"
     )
 
     print(
         "Manifiesto             : "
-        f"{MANIFEST_PATH}"
+        f"{manifest_path}"
     )
 
     print("-" * 88)
@@ -156,23 +256,24 @@ def main() -> int:
                 WikipediaWikitextCleaner()
             ),
             output_directory=(
-                ARTICLE_DIRECTORY
+                article_directory
             ),
             manifest_path=(
-                MANIFEST_PATH
+                manifest_path
             ),
             snapshot_date=(
                 SNAPSHOT_DATE
             ),
             target_articles=(
-                TARGET_ARTICLES
+                target_articles
+            ),
+            skip_articles=(
+                skip_articles
             ),
         )
     )
 
-    timer_start = (
-        perf_counter()
-    )
+    timer_start = perf_counter()
 
     try:
 
@@ -183,6 +284,7 @@ def main() -> int:
     except Exception as exc:
 
         print()
+
         print(
             "ERROR DURANTE LA EXTRACCIÓN"
         )
@@ -199,6 +301,7 @@ def main() -> int:
     )
 
     print()
+
     print("=" * 88)
 
     print(
@@ -224,24 +327,60 @@ def main() -> int:
     )
 
     print(
+        "Artículos válidos usados : "
+        f"{first_valid_article:,}"
+        " -> "
+        f"{last_valid_article:,}"
+    )
+
+    print(
         "Directorio artículos     : "
-        f"{ARTICLE_DIRECTORY}"
+        f"{article_directory}"
     )
 
     print(
         "Manifiesto               : "
-        f"{MANIFEST_PATH}"
+        f"{manifest_path}"
     )
 
     print("-" * 88)
 
     if (
+        result.skipped_articles
+        != skip_articles
+    ):
+
+        print(
+            "RESULTADO FINAL: "
+            "CANTIDAD OMITIDA INCORRECTA"
+        )
+
+        return 1
+
+    if (
         result.extracted
-        != TARGET_ARTICLES
+        != target_articles
     ):
 
         print(
             "RESULTADO FINAL: INCOMPLETO"
+        )
+
+        return 1
+
+    expected_valid_articles = (
+        skip_articles
+        + target_articles
+    )
+
+    if (
+        result.valid_articles
+        != expected_valid_articles
+    ):
+
+        print(
+            "RESULTADO FINAL: "
+            "SECUENCIA DE SELECCIÓN INCONSISTENTE"
         )
 
         return 1

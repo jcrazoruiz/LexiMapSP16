@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import bz2
 import json
@@ -20,6 +20,8 @@ class WikipediaHeldoutExtractionResult:
     redirects: int = 0
     empty_wikitext: int = 0
     cleaned_empty: int = 0
+    valid_articles: int = 0
+    skipped_articles: int = 0
     extracted: int = 0
     errors: int = 0
 
@@ -28,20 +30,11 @@ class WikipediaHeldoutExtractor:
     """
     Extrae un conjunto held-out determinista de artículos de Wikipedia.
 
-    El extractor:
+    Permite omitir una cantidad determinada de artículos válidos
+    antes de comenzar la extracción de la muestra experimental.
 
-    - lee directamente un segmento XML BZ2 de Wikipedia;
-    - considera únicamente páginas del namespace 0;
-    - excluye redirecciones;
-    - descarta páginas sin wikitext;
-    - aplica WikipediaWikitextCleaner;
-    - descarta textos vacíos después de la limpieza;
-    - conserva page_id, título y metadatos básicos;
-    - se detiene exactamente al alcanzar target_articles.
-
-    El orden de selección corresponde al orden de aparición de las
-    páginas en el segmento del dump. Por tanto, dados el mismo dump,
-    cleaner y target_articles, el conjunto resultante es reproducible.
+    La selección conserva el orden de aparición de las páginas
+    dentro del segmento del dump.
     """
 
     def __init__(
@@ -51,6 +44,7 @@ class WikipediaHeldoutExtractor:
         manifest_path: Path,
         snapshot_date: str,
         target_articles: int = 1_000,
+        skip_articles: int = 0,
         source_code: str = "wikipedia_es",
     ) -> None:
 
@@ -59,11 +53,17 @@ class WikipediaHeldoutExtractor:
                 "target_articles debe ser mayor que cero."
             )
 
+        if skip_articles < 0:
+            raise ValueError(
+                "skip_articles no puede ser negativo."
+            )
+
         self.cleaner = cleaner
         self.output_directory = output_directory
         self.manifest_path = manifest_path
         self.snapshot_date = snapshot_date
         self.target_articles = target_articles
+        self.skip_articles = skip_articles
         self.source_code = source_code
 
     @staticmethod
@@ -177,13 +177,6 @@ class WikipediaHeldoutExtractor:
     def _prepare_output(
         self,
     ) -> None:
-        """
-        Prepara el directorio de salida.
-
-        Para proteger la reproducibilidad del conjunto held-out,
-        no se permite mezclar una ejecución nueva con resultados
-        anteriores.
-        """
 
         self.output_directory.mkdir(
             parents=True,
@@ -310,6 +303,7 @@ class WikipediaHeldoutExtractor:
                     continue
 
                 try:
+
                     cleaning_result = (
                         self.cleaner.clean(
                             wikitext
@@ -317,6 +311,7 @@ class WikipediaHeldoutExtractor:
                     )
 
                 except Exception:
+
                     result.errors += 1
                     element.clear()
                     continue
@@ -335,6 +330,17 @@ class WikipediaHeldoutExtractor:
                     element.clear()
                     continue
 
+                result.valid_articles += 1
+
+                if (
+                    result.valid_articles
+                    <= self.skip_articles
+                ):
+
+                    result.skipped_articles += 1
+                    element.clear()
+                    continue
+
                 output_path = (
                     self.output_directory
                     / f"{page_id}.txt"
@@ -348,6 +354,9 @@ class WikipediaHeldoutExtractor:
                 metadata = {
                     "selection_order": (
                         result.extracted + 1
+                    ),
+                    "valid_article_order": (
+                        result.valid_articles
                     ),
                     "identifier": (
                         f"wikipedia_es:{page_id}"
@@ -394,6 +403,12 @@ class WikipediaHeldoutExtractor:
                     "evaluation_role": (
                         "HELD_OUT"
                     ),
+                    "selection_skip": (
+                        self.skip_articles
+                    ),
+                    "selection_target": (
+                        self.target_articles
+                    ),
                     "acquisition_status": (
                         "EXTRACTED"
                     ),
@@ -415,6 +430,7 @@ class WikipediaHeldoutExtractor:
                     result.extracted % 100
                     == 0
                 ):
+
                     elapsed = (
                         perf_counter()
                         - timer_start
@@ -426,6 +442,12 @@ class WikipediaHeldoutExtractor:
                         f"{result.extracted:,}"
                         "/"
                         f"{self.target_articles:,}"
+                        " | Omitidos: "
+                        f"{result.skipped_articles:,}"
+                        "/"
+                        f"{self.skip_articles:,}"
+                        " | Válidos: "
+                        f"{result.valid_articles:,}"
                         " | Páginas inspeccionadas: "
                         f"{result.pages_inspected:,}"
                         " | Redirects: "
@@ -447,6 +469,17 @@ class WikipediaHeldoutExtractor:
         print()
 
         if (
+            result.skipped_articles
+            != self.skip_articles
+        ):
+            raise RuntimeError(
+                "No fue posible omitir la cantidad solicitada "
+                "de artículos válidos. "
+                f"Solicitados: {self.skip_articles:,}; "
+                f"omitidos: {result.skipped_articles:,}."
+            )
+
+        if (
             result.extracted
             != self.target_articles
         ):
@@ -454,6 +487,21 @@ class WikipediaHeldoutExtractor:
                 "No fue posible completar el conjunto held-out. "
                 f"Solicitados: {self.target_articles:,}; "
                 f"extraídos: {result.extracted:,}."
+            )
+
+        expected_valid_articles = (
+            self.skip_articles
+            + self.target_articles
+        )
+
+        if (
+            result.valid_articles
+            != expected_valid_articles
+        ):
+            raise RuntimeError(
+                "Secuencia held-out inconsistente. "
+                f"Válidos esperados: {expected_valid_articles:,}; "
+                f"válidos observados: {result.valid_articles:,}."
             )
 
         return result

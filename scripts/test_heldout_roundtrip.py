@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import csv
@@ -40,7 +40,7 @@ from leximapsp16.encoder import LexiMapEncoder  # noqa: E402
 
 
 # =============================================================================
-# CONFIGURACIÓN EXPERIMENTAL FIJA
+# CONFIGURACIÓN GENERAL
 # =============================================================================
 
 DICTIONARY_DIRECTORY = (
@@ -49,39 +49,15 @@ DICTIONARY_DIRECTORY = (
     / "input"
 )
 
-HELDOUT_DIRECTORY = (
+HELDOUT_ROOT = (
     PROJECT_ROOT
     / "data"
     / "heldout"
-    / "wikipedia_es_20260801_segment2"
 )
-
-ARTICLE_DIRECTORY = (
-    HELDOUT_DIRECTORY
-    / "articles"
-)
-
-MANIFEST_PATH = (
-    HELDOUT_DIRECTORY
-    / "manifest.jsonl"
-)
-
-EXPECTED_DOCUMENTS = 1_000
 
 FIRST_LEXICAL_TOKEN = 536
 
-DATASET_NAME = (
-    "Wikipedia ES 20260801 - segmento 2"
-)
-
-DATASET_ROLE = "HELD_OUT"
-
-SNAPSHOT_DATE = "20260801"
-
-SEGMENT_NAME = (
-    "eswiki-20260801-pages-articles-"
-    "multistream2.xml-p159401p693323.bz2"
-)
+DEFAULT_DATASET_ROLE = "HELD_OUT"
 
 
 # =============================================================================
@@ -129,8 +105,8 @@ def parse_arguments() -> argparse.Namespace:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Valida round-trip de LexiMapSp-16 sobre el conjunto "
-            "Wikipedia held-out usando un diccionario LexiCorpus parametrizable."
+            "Valida round-trip de LexiMapSp-16 sobre un conjunto "
+            "held-out parametrizable usando un diccionario LexiCorpus."
         )
     )
 
@@ -139,7 +115,7 @@ def parse_arguments() -> argparse.Namespace:
         required=True,
         help=(
             "Nombre del archivo CSV del diccionario dentro de docs/input. "
-            "Ejemplo: LexiCorpus_20000_Completo.csv"
+            "Ejemplo: LexiCorpus_65000_Completo.csv"
         ),
     )
 
@@ -154,12 +130,31 @@ def parse_arguments() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--dataset",
+        required=True,
+        help=(
+            "Nombre del directorio del dataset dentro de data/heldout. "
+            "Ejemplo: "
+            "wikipedia_es_20260801_segment2_skip1000_count2000"
+        ),
+    )
+
+    parser.add_argument(
+        "--count",
+        required=True,
+        type=int,
+        help=(
+            "Cantidad esperada de documentos en el dataset held-out."
+        ),
+    )
+
+    parser.add_argument(
         "--output-csv",
         type=Path,
         default=None,
         help=(
             "CSV donde se almacenará o actualizará el resultado experimental. "
-            "Ejemplo: reports/heldout_benchmark_results.csv"
+            "Ejemplo: reports/heldout_benchmark_results_sample2.csv"
         ),
     )
 
@@ -238,13 +233,14 @@ def load_manifest(
 
 def validate_manifest(
     records: list[dict],
+    expected_documents: int,
 ) -> None:
 
-    if len(records) != EXPECTED_DOCUMENTS:
+    if len(records) != expected_documents:
 
         raise ValueError(
             "Cantidad incorrecta de registros en manifiesto. "
-            f"Esperados: {EXPECTED_DOCUMENTS:,}; "
+            f"Esperados: {expected_documents:,}; "
             f"encontrados: {len(records):,}."
         )
 
@@ -287,12 +283,179 @@ def validate_manifest(
 
     if (
         len(set(page_ids))
-        != EXPECTED_DOCUMENTS
+        != expected_documents
     ):
 
         raise ValueError(
             "El manifiesto contiene page_id duplicados."
         )
+
+
+def extract_manifest_metadata(
+    records: list[dict],
+) -> dict:
+
+    if not records:
+
+        raise ValueError(
+            "El manifiesto está vacío."
+        )
+
+    snapshot_values = {
+        str(
+            record.get(
+                "snapshot_date",
+                "",
+            )
+        ).strip()
+        for record in records
+    }
+
+    snapshot_values.discard(
+        ""
+    )
+
+    if len(snapshot_values) > 1:
+
+        raise ValueError(
+            "El manifiesto contiene más de un snapshot_date."
+        )
+
+    segment_values = {
+        str(
+            record.get(
+                "segment",
+                "",
+            )
+        ).strip()
+        for record in records
+    }
+
+    segment_values.discard(
+        ""
+    )
+
+    if len(segment_values) > 1:
+
+        raise ValueError(
+            "El manifiesto contiene más de un segmento."
+        )
+
+    role_values = {
+        str(
+            record.get(
+                "evaluation_role",
+                "",
+            )
+        ).strip()
+        for record in records
+    }
+
+    role_values.discard(
+        ""
+    )
+
+    if len(role_values) > 1:
+
+        raise ValueError(
+            "El manifiesto contiene más de un evaluation_role."
+        )
+
+    snapshot_date = (
+        next(
+            iter(snapshot_values),
+            "",
+        )
+    )
+
+    segment = (
+        next(
+            iter(segment_values),
+            "",
+        )
+    )
+
+    dataset_role = (
+        next(
+            iter(role_values),
+            DEFAULT_DATASET_ROLE,
+        )
+    )
+
+    valid_orders: list[int] = []
+
+    for record in records:
+
+        value = record.get(
+            "valid_article_order"
+        )
+
+        if value is None:
+            continue
+
+        try:
+
+            valid_orders.append(
+                int(value)
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ) as error:
+
+            raise ValueError(
+                "valid_article_order inválido en manifiesto."
+            ) from error
+
+    first_valid_order = (
+        min(valid_orders)
+        if valid_orders
+        else None
+    )
+
+    last_valid_order = (
+        max(valid_orders)
+        if valid_orders
+        else None
+    )
+
+    if valid_orders:
+
+        if (
+            len(valid_orders)
+            != len(records)
+        ):
+
+            raise ValueError(
+                "valid_article_order está presente sólo "
+                "en una parte del manifiesto."
+            )
+
+        expected_valid_orders = list(
+            range(
+                first_valid_order,
+                last_valid_order + 1,
+            )
+        )
+
+        if (
+            valid_orders
+            != expected_valid_orders
+        ):
+
+            raise ValueError(
+                "valid_article_order no forma una secuencia "
+                "continua y ordenada."
+            )
+
+    return {
+        "snapshot_date": snapshot_date,
+        "segment": segment,
+        "dataset_role": dataset_role,
+        "first_valid_order": first_valid_order,
+        "last_valid_order": last_valid_order,
+    }
 
 
 def find_first_difference(
@@ -394,6 +557,10 @@ def write_benchmark_result(
         result["DictionarySize"]
     )
 
+    dataset_name = str(
+        result["Dataset"]
+    )
+
     updated = False
 
     for index, row in enumerate(
@@ -405,6 +572,8 @@ def write_benchmark_result(
             == dictionary_name
             and row.get("DictionarySize")
             == dictionary_size
+            and row.get("Dataset")
+            == dataset_name
         ):
 
             existing_rows[index] = {
@@ -425,8 +594,11 @@ def write_benchmark_result(
         )
 
     existing_rows.sort(
-        key=lambda row: int(
-            row["DictionarySize"]
+        key=lambda row: (
+            row["Dataset"],
+            int(
+                row["DictionarySize"]
+            ),
         )
     )
 
@@ -466,6 +638,21 @@ def main() -> int:
         / args.dictionary
     )
 
+    heldout_directory = (
+        HELDOUT_ROOT
+        / args.dataset
+    )
+
+    article_directory = (
+        heldout_directory
+        / "articles"
+    )
+
+    manifest_path = (
+        heldout_directory
+        / "manifest.jsonl"
+    )
+
     output_csv = resolve_output_csv(
         args.output_csv
     )
@@ -474,10 +661,26 @@ def main() -> int:
         args.size
     )
 
+    expected_documents = (
+        args.count
+    )
+
+    dataset_name = (
+        args.dataset
+    )
+
     if expected_dictionary_size <= 0:
 
         print(
             "ERROR: --size debe ser mayor que cero."
+        )
+
+        return 1
+
+    if expected_documents <= 0:
+
+        print(
+            "ERROR: --count debe ser mayor que cero."
         )
 
         return 1
@@ -503,9 +706,11 @@ def main() -> int:
 
     print()
     print("=" * 88)
+
     print(
         "LEXIMAPSP-16 - VALIDACIÓN ROUND-TRIP HELD-OUT"
     )
+
     print("=" * 88)
 
     print(
@@ -526,17 +731,12 @@ def main() -> int:
 
     print(
         "Dataset                : "
-        f"{DATASET_NAME}"
-    )
-
-    print(
-        "Rol                    : "
-        f"{DATASET_ROLE}"
+        f"{dataset_name}"
     )
 
     print(
         "Documentos esperados   : "
-        f"{EXPECTED_DOCUMENTS:,}"
+        f"{expected_documents:,}"
     )
 
     if output_csv is not None:
@@ -564,26 +764,38 @@ def main() -> int:
 
         return 1
 
-    if not MANIFEST_PATH.exists():
+    if not heldout_directory.exists():
+
+        print(
+            "ERROR: no existe el dataset held-out:"
+        )
+
+        print(
+            heldout_directory
+        )
+
+        return 1
+
+    if not manifest_path.exists():
 
         print(
             "ERROR: no existe el manifiesto:"
         )
 
         print(
-            MANIFEST_PATH
+            manifest_path
         )
 
         return 1
 
-    if not ARTICLE_DIRECTORY.exists():
+    if not article_directory.exists():
 
         print(
             "ERROR: no existe el directorio de artículos:"
         )
 
         print(
-            ARTICLE_DIRECTORY
+            article_directory
         )
 
         return 1
@@ -595,11 +807,18 @@ def main() -> int:
     try:
 
         records = load_manifest(
-            MANIFEST_PATH
+            manifest_path
         )
 
         validate_manifest(
-            records
+            records,
+            expected_documents,
+        )
+
+        manifest_metadata = (
+            extract_manifest_metadata(
+                records
+            )
         )
 
     except Exception as error:
@@ -613,6 +832,64 @@ def main() -> int:
         )
 
         return 1
+
+    dataset_role = (
+        manifest_metadata[
+            "dataset_role"
+        ]
+    )
+
+    snapshot_date = (
+        manifest_metadata[
+            "snapshot_date"
+        ]
+    )
+
+    segment_name = (
+        manifest_metadata[
+            "segment"
+        ]
+    )
+
+    first_valid_order = (
+        manifest_metadata[
+            "first_valid_order"
+        ]
+    )
+
+    last_valid_order = (
+        manifest_metadata[
+            "last_valid_order"
+        ]
+    )
+
+    print(
+        "Rol                    : "
+        f"{dataset_role}"
+    )
+
+    print(
+        "Snapshot               : "
+        f"{snapshot_date or 'NO DISPONIBLE'}"
+    )
+
+    print(
+        "Segmento               : "
+        f"{segment_name or 'NO DISPONIBLE'}"
+    )
+
+    if (
+        first_valid_order is not None
+        and last_valid_order is not None
+    ):
+
+        print(
+            "Posiciones válidas     : "
+            f"{first_valid_order:,}-"
+            f"{last_valid_order:,}"
+        )
+
+    print("-" * 88)
 
     # =========================================================================
     # DICCIONARIO
@@ -753,7 +1030,7 @@ def main() -> int:
         )
 
         article_path = (
-            ARTICLE_DIRECTORY
+            article_directory
             / f"{page_id}.txt"
         )
 
@@ -847,7 +1124,7 @@ def main() -> int:
 
             roundtrip_failed += 1
 
-            difference = (
+            difference_detail = (
                 find_first_difference(
                     original_text,
                     reconstructed_text,
@@ -872,13 +1149,13 @@ def main() -> int:
                 ),
             }
 
-            if difference is not None:
+            if difference_detail is not None:
 
                 (
                     difference_index,
                     original_character,
                     reconstructed_character,
-                ) = difference
+                ) = difference_detail
 
                 detail[
                     "first_difference_index"
@@ -994,7 +1271,7 @@ def main() -> int:
                 "Procesados: "
                 f"{document_number:,}"
                 "/"
-                f"{EXPECTED_DOCUMENTS:,}"
+                f"{expected_documents:,}"
                 " | OK: "
                 f"{successful:,}"
                 " | Round-trip err: "
@@ -1050,7 +1327,7 @@ def main() -> int:
 
     codec_success = (
         successful
-        == EXPECTED_DOCUMENTS
+        == expected_documents
         and roundtrip_failed == 0
         and codec_exceptions == 0
     )
@@ -1077,10 +1354,17 @@ def main() -> int:
 
     print()
     print("=" * 88)
+
     print(
         "RESULTADO ROUND-TRIP HELD-OUT"
     )
+
     print("-" * 88)
+
+    print(
+        "Dataset                : "
+        f"{dataset_name}"
+    )
 
     print(
         "Diccionario            : "
@@ -1257,10 +1541,10 @@ def main() -> int:
             "DictionarySize": dictionary.size,
             "FirstToken": dictionary.first_token,
             "LastToken": dictionary.last_token,
-            "Dataset": DATASET_NAME,
-            "DatasetRole": DATASET_ROLE,
-            "SnapshotDate": SNAPSHOT_DATE,
-            "Segment": SEGMENT_NAME,
+            "Dataset": dataset_name,
+            "DatasetRole": dataset_role,
+            "SnapshotDate": snapshot_date,
+            "Segment": segment_name,
             "DocumentsEvaluated": len(records),
             "RoundTripCorrect": successful,
             "RoundTripErrors": roundtrip_failed,
@@ -1341,7 +1625,7 @@ def main() -> int:
         print(
             "RESULTADO FINAL: "
             "ROUND-TRIP CORRECTO EN LOS "
-            "1,000 DOCUMENTOS HELD-OUT."
+            f"{expected_documents:,} DOCUMENTOS HELD-OUT."
         )
 
         print()
@@ -1355,7 +1639,8 @@ def main() -> int:
         )
 
         print(
-            "para 1,000 de 1,000 documentos."
+            f"para {successful:,} de "
+            f"{expected_documents:,} documentos."
         )
 
         print()
