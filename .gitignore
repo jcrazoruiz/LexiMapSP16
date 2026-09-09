@@ -38,7 +38,7 @@ desktop.ini
 
 
 # ------------------------------------------------------------
-# Archivos temporales
+# Archivos temporales y respaldos locales
 # ------------------------------------------------------------
 
 *.tmp
@@ -47,6 +47,7 @@ desktop.ini
 *.swp
 *~
 *.log
+*.old
 
 
 # ------------------------------------------------------------
@@ -62,7 +63,18 @@ data/heldout/**/articles/
 
 
 # ------------------------------------------------------------
-# Dumps de Wikimedia
+# Dataset médico
+#
+# Los documentos del dataset médico constituyen datos
+# experimentales pesados y no deben almacenarse en Git.
+# Los scripts y resultados reproducibles sí se versionan.
+# ------------------------------------------------------------
+
+data/medical/
+
+
+# ------------------------------------------------------------
+# Dumps y archivos comprimidos
 # ------------------------------------------------------------
 
 *.bz2
@@ -96,3 +108,18 @@ reports/tmp/
 # utilizados por LexiMapSp-16 forman parte de los insumos
 # experimentales y deben quedar versionados.
 # ------------------------------------------------------------
+
+
+# ------------------------------------------------------------
+# Implementaciones intermedias del protocolo
+#
+# Se conservan localmente como evidencia del proceso de
+# desarrollo, pero no forman parte de la versión estable.
+# ------------------------------------------------------------
+
+*_protocol_reserved_0F.py
+*test_protocol_exhaustive_reserved_0F.py
+*test_roundtrip_edge_cases_reserved_0F.py
+
+# Sustituida por test_protocol_exhaustive_diagnostic.py
+scripts/test_protocol_exhaustive_final_controls.py
