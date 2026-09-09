@@ -9,6 +9,9 @@ from leximapsp16.constants import (
     ISO_END,
     ISO_START,
     LF,
+    LITERAL_END_ESCAPE,
+    LITERAL_NUL_ESCAPE,
+    RESERVED_FUTURE_CONTROL_CODES,
     SPACE,
     TAB,
     TYPOGRAPHIC_EXTENSION,
@@ -85,8 +88,11 @@ class LexiMapDecoder:
 
         00 00       inicio de literal UTF-8
         00 01       fin de literal
-        00 02       CAPITALIZED
-        00 03       UPPERCASE
+
+        Dentro de un literal:
+        00 00       byte NUL literal
+        00 01       fin de literal
+        cualquier otro byte distinto de 00 pertenece al payload UTF-8
 
         00 09       TAB
         00 0A       LF
@@ -239,6 +245,16 @@ class LexiMapDecoder:
 
                 position += 2
                 continue
+
+            # -------------------------------------------------------------
+            # CONTROLES FUTUROS RESERVADOS
+            # 04,05,06,07,08,0B,0C,0E,0F
+            # -------------------------------------------------------------
+            if code in RESERVED_FUTURE_CONTROL_CODES:
+                raise LexiMapDecodingError(
+                    "Código de control reservado para uso futuro "
+                    f"encontrado en el flujo: {code} (0x{code:04X})."
+                )
 
             # -------------------------------------------------------------
             # RANGO RESERVADO
@@ -437,13 +453,20 @@ class LexiMapDecoder:
         payload_start: int,
     ) -> tuple[str, int]:
         """
-        Lee un bloque literal UTF-8.
+        Lee un bloque literal UTF-8 con byte stuffing.
 
         payload_start apunta al primer byte posterior a ISO_START.
 
-        El bloque termina cuando aparece:
+        Dentro del bloque:
+
+            00 00
+                representa un byte NUL literal.
 
             00 01
+                cierra el bloque.
+
+            cualquier byte distinto de 00
+                pertenece directamente al payload UTF-8.
 
         Devuelve:
 
@@ -451,42 +474,64 @@ class LexiMapDecoder:
             posición posterior a ISO_END
         """
 
-        delimiter = bytes(
-            (
-                0x00,
-                0x01,
-            )
-        )
+        payload = bytearray()
+        position = payload_start
 
-        end = data.find(
-            delimiter,
-            payload_start,
-        )
+        while position < len(data):
 
-        if end == -1:
+            current = data[position]
+
+            if current != 0x00:
+                payload.append(
+                    current
+                )
+                position += 1
+                continue
+
+            if position + 1 >= len(data):
+                raise LexiMapDecodingError(
+                    "Bloque literal termina con un escape 00 incompleto."
+                )
+
+            escaped = data[
+                position + 1
+            ]
+
+            if escaped == LITERAL_NUL_ESCAPE:
+                payload.append(
+                    0x00
+                )
+                position += 2
+                continue
+
+            if escaped == LITERAL_END_ESCAPE:
+                try:
+                    text = bytes(
+                        payload
+                    ).decode(
+                        "utf-8"
+                    )
+
+                except UnicodeDecodeError as error:
+                    raise LexiMapDecodingError(
+                        "El payload de un bloque literal no contiene "
+                        "UTF-8 válido."
+                    ) from error
+
+                return (
+                    text,
+                    position + 2,
+                )
+
             raise LexiMapDecodingError(
-                "Bloque literal sin ISO_END."
+                "Secuencia de escape inválida dentro de bloque literal: "
+                f"00 {escaped:02X} en la posición {position}."
             )
 
-        payload = data[
-            payload_start:end
-        ]
-
-        try:
-            text = payload.decode(
-                "utf-8"
-            )
-
-        except UnicodeDecodeError as error:
-            raise LexiMapDecodingError(
-                "El payload de un bloque literal no contiene "
-                "UTF-8 válido."
-            ) from error
-
-        return (
-            text,
-            end + 2,
+        raise LexiMapDecodingError(
+            "Bloque literal sin ISO_END."
         )
+
 
     def _decode_direct_code(
         self,

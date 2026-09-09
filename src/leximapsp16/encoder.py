@@ -11,6 +11,7 @@ from leximapsp16.constants import (
     SPACE,
     TAB,
     code_to_bytes,
+    is_protocol_control_code,
 )
 from leximapsp16.dictionary import LexiMapDictionary
 from leximapsp16.representation import (
@@ -374,12 +375,6 @@ class LexiMapEncoder:
             representation_type
             == RepresentationType.DIRECT
         ):
-            self._append_modifier(
-                representation,
-                output,
-                statistics,
-            )
-
             direct_code = (
                 representation.direct_code
             )
@@ -388,6 +383,36 @@ class LexiMapEncoder:
                 raise LexiMapEncodingError(
                     "Representación DIRECT sin código."
                 )
+
+            # ---------------------------------------------------------
+            # RANGO DE CONTROL RESERVADO DEL PROTOCOLO
+            #
+            # 00 00..00 0F pertenecen al espacio de control LexiMapSp-16.
+            #
+            # 00-03 tienen significado asignado; 09, 0A y 0D conservan
+            # TAB, LF y CR; 04,05,06,07,08,0B,0C,0E,0F quedan reservados.
+            #
+            # Los códigos no asignados como caracteres directos válidos
+            # se preservan mediante literal UTF-8.
+            # ---------------------------------------------------------
+            if (
+                is_protocol_control_code(direct_code)
+                and direct_code not in (TAB, LF, CR)
+            ):
+                self._encode_literal(
+                    chr(direct_code),
+                    output,
+                    statistics,
+                )
+
+                statistics.literal_items += 1
+                return
+
+            self._append_modifier(
+                representation,
+                output,
+                statistics,
+            )
 
             output.extend(
                 code_to_bytes(
@@ -484,12 +509,32 @@ class LexiMapEncoder:
         Formato:
 
             00 00
-            <payload UTF-8>
+            <payload UTF-8 con byte stuffing>
             00 01
+
+        Dentro del payload:
+
+            00 00
+                representa un byte NUL literal.
+
+            00 01
+                representa exclusivamente el cierre del bloque.
         """
 
         payload = text.encode(
             "utf-8"
+        )
+
+        # Byte stuffing dentro del bloque literal:
+        #
+        #   00 00 = byte NUL literal
+        #   00 01 = cierre del bloque
+        #
+        # De esta forma una secuencia literal 00 01 nunca puede
+        # confundirse con ISO_END.
+        stuffed_payload = payload.replace(
+            b"\x00",
+            b"\x00\x00",
         )
 
         output.extend(
@@ -499,7 +544,7 @@ class LexiMapEncoder:
         )
 
         output.extend(
-            payload
+            stuffed_payload
         )
 
         output.extend(
@@ -508,6 +553,9 @@ class LexiMapEncoder:
             )
         )
 
+        # Se conserva la semántica histórica de esta estadística:
+        # mide bytes útiles del payload UTF-8, no bytes de framing ni
+        # bytes añadidos por stuffing.
         statistics.literal_payload_bytes += len(
             payload
         )

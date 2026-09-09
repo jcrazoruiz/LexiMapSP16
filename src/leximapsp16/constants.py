@@ -54,6 +54,38 @@ ISO_END = 1
 CAPITALIZED = 2
 UPPERCASE = 3
 
+# Espacio de control del protocolo: 00-0F.
+#
+# Asignados actualmente:
+#   00 = LITERAL_START
+#   01 = LITERAL_END
+#   02 = CAPITALIZED
+#   03 = UPPERCASE
+#   09 = TAB
+#   0A = LF
+#   0D = CR
+#
+# Reservados para futuras extensiones:
+#   04, 05, 06, 07, 08, 0B, 0C, 0E, 0F
+PROTOCOL_CONTROL_START = 0x00
+PROTOCOL_CONTROL_END = 0x0F
+
+RESERVED_FUTURE_CONTROL_CODES = frozenset({
+    0x04, 0x05, 0x06, 0x07, 0x08,
+    0x0B, 0x0C, 0x0E, 0x0F,
+})
+
+# Dentro de un bloque literal UTF-8, el prefijo 00 se interpreta
+# según el estado del decoder:
+#
+#   00 00 = byte NUL literal (byte stuffing)
+#   00 01 = fin del bloque literal
+#
+# Estos valores son contextuales: fuera del bloque conservan su
+# significado normal como ISO_START e ISO_END.
+LITERAL_NUL_ESCAPE = 0
+LITERAL_END_ESCAPE = 1
+
 
 # =============================================================================
 # CONTROLES DE TEXTO
@@ -168,6 +200,16 @@ def is_direct_code(value: int) -> bool:
         <= value
         <= DIRECT_CODE_END
     )
+
+
+def is_protocol_control_code(value: int) -> bool:
+    """Indica si un código pertenece al espacio de control 00-0F."""
+    return PROTOCOL_CONTROL_START <= value <= PROTOCOL_CONTROL_END
+
+
+def is_future_reserved_control_code(value: int) -> bool:
+    """Indica si un código está reservado para uso futuro."""
+    return value in RESERVED_FUTURE_CONTROL_CODES
 
 
 def is_reserved_extension(value: int) -> bool:
